@@ -1,0 +1,26 @@
+# requirements.txt
+streamlit
+torch
+transformers
+sentence-transformers
+ultralytics
+spacy
+anthropic
+qdrant-client
+python-docx
+python-pptx
+openpyxl
+beautifulsoup4
+pillow
+langdetect
+aiofiles
+lz4
+xxhash
+groq
+openai
+python-dotenv
+Office365-REST-Python-Client
+simple-salesforce
+google-cloud-storage
+google-cloud-bigquery
+tenacity
