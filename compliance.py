@@ -8,9 +8,7 @@ class ComplianceManager:
         self.audit_collection = "audit_logs"
 
     async def _store_audit_log(self, audit_entry: AuditLog):
-        """Store audit log entry"""
         try:
-            # Convert AuditLog to dictionary for storage
             log_data = {
                 'timestamp': audit_entry.timestamp,
                 'user_id': audit_entry.user_id,
@@ -23,8 +21,6 @@ class ComplianceManager:
                 'details': audit_entry.details
             }
             
-            # Store in your preferred storage (e.g., database)
-            # For now, just log it
             self.logger.info(f"Stored audit log: {log_data}")
             
         except Exception as e:
