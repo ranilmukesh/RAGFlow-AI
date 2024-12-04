@@ -1,6 +1,6 @@
 from models import DocumentMetadata
 from imports import *
-from models import DocumentMetadata, AuditLog  # Added AuditLog import
+from models import DocumentMetadata, AuditLog
 class ComplianceManager:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
