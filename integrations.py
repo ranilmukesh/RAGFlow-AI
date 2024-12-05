@@ -10,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 from openai import OpenAI as openai
 import groq
 from anthropic import Anthropic as anthropic
+import asyncio
 
 class IntegrationManager:
     def __init__(self, config: Dict[str, Any]):
@@ -171,3 +172,76 @@ class IntegrationManager:
         except Exception as e:
             self.logger.error(f"Error processing with {llm_name}: {str(e)}")
             raise
+
+class LLMRouter:
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.setup_clients()
+        self.task_routing = {
+            'code_generation': ['claude-3-opus', 'gpt-4'],
+            'summarization': ['claude-3-sonnet', 'mixtral-8x7b'],
+            'qa': ['gpt-4-turbo', 'claude-3-sonnet'],
+            'analysis': ['claude-3-opus', 'gpt-4']
+        }
+        
+    async def route_request(
+        self,
+        content: str,
+        task_type: str,
+        max_retries: int = 3,
+        timeout: int = 30
+    ) -> Dict:
+        models = self.task_routing.get(task_type, ['claude-3-sonnet'])
+        
+        for model in models:
+            try:
+                provider = self._get_provider(model)
+                response = await asyncio.wait_for(
+                    self._process_with_model(content, model, provider),
+                    timeout=timeout
+                )
+                return {
+                    'result': response,
+                    'model': model,
+                    'provider': provider
+                }
+            except Exception as e:
+                self.logger.warning(f"Failed with {model}: {str(e)}")
+                continue
+                
+        raise Exception("All LLM attempts failed")
+        
+    async def _process_with_model(
+        self,
+        content: str,
+        model: str,
+        provider: str
+    ) -> Dict:
+        if provider == 'anthropic':
+            messages = [{"role": "user", "content": content}]
+            response = await self.claude.messages.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=4000
+            )
+            return response.content[0].text
+            
+        elif provider == 'openai':
+            response = await self.openai_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": content}],
+                temperature=0.7,
+                max_tokens=4000,
+                response_format={ "type": "text" }
+            )
+            return response.choices[0].message.content
+            
+        elif provider == 'groq':
+            response = await self.groq_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": content}],
+                temperature=0.7,
+                max_tokens=4000
+            )
+            return response.choices[0].message.content

@@ -2,7 +2,7 @@ from cache import CacheManager
 from compliance import ComplianceManager
 from integrations import IntegrationManager
 from models import DocumentMetadata, ProcessingResult, ProcessingOptions
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Callable
 from datetime import datetime
 from pathlib import Path
 import anthropic
@@ -20,6 +20,10 @@ from imports import *
 from models import *
 import aiofiles
 from concurrent.futures import ProcessPoolExecutor
+from sentence_transformers import CrossEncoder
+from torch.cuda.amp import autocast
+import asyncio
+import time
 
 class EnhancedDocumentProcessor:
     def __init__(
@@ -109,122 +113,114 @@ class EnhancedDocumentProcessor:
             self.logger.error(f"Error in {error_message}: {str(e)}")
             raise
 
-    async def process_documents(self, file_paths: List[str], user_id: str) -> List[ProcessingResult]:
-        """Enhanced processing pipeline with Windows-optimized async handling"""
-        results = []
-        unique_files = {xxhash.xxh64(f.encode()).hexdigest(): f for f in file_paths}
-        
-        # Create processing tasks
-        tasks = []
-        for batch in self._create_batches(list(unique_files.values())):
-            task = self._safe_async_operation(
-                self._process_batch(batch, user_id),
-                f"processing batch of {len(batch)} files"
-            )
-            tasks.append(task)
-        
-        # Process with graceful error handling
+    async def process_documents(
+        self,
+        files: List[str],
+        user_id: str,
+        batch_size: int = 64
+    ) -> List[ProcessingResult]:
         try:
-            # Use gather with return_exceptions=True for fault tolerance
-            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Group files by type for optimized batch processing
+            grouped_files = self._group_files_by_type(files)
+            results = []
             
-            # Handle results and exceptions
-            for result in batch_results:
-                if isinstance(result, Exception):
-                    self.logger.error(f"Batch processing error: {str(result)}")
+            # Process each group with specialized handlers
+            for file_type, file_group in grouped_files.items():
+                handler = self.supported_formats.get(file_type)
+                if not handler:
                     continue
-                results.extend(result)
-                
+                    
+                # Process in batches
+                for batch in self._create_batches(file_group, batch_size):
+                    batch_results = await self._process_batch(
+                        batch,
+                        handler,
+                        user_id
+                    )
+                    results.extend(batch_results)
+                    
+            return results
+            
         except Exception as e:
-            self.logger.error(f"Critical error in document processing: {str(e)}")
+            self.logger.error(f"Document processing error: {str(e)}")
             raise
-        finally:
-            # Ensure analytics are updated even if processing fails
-            await self._safe_async_operation(
-                self._update_analytics(results),
-                "updating analytics"
-            )
             
-        return results
-
-    async def _process_batch(self, file_paths: List[str], user_id: str) -> List[ProcessingResult]:
-        """Process batch with resource management"""
-        results = []
+    async def _process_batch(
+        self,
+        batch: List[str],
+        handler: Callable,
+        user_id: str
+    ) -> List[ProcessingResult]:
         tasks = []
-        
-        for file_path in file_paths:
-            task = self._safe_async_operation(
-                self._process_single_file(file_path, user_id),
-                f"processing file {file_path}"
-            )
-            tasks.append(task)
-        
-        try:
-            file_results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in file_results:
-                if isinstance(result, Exception):
-                    self.logger.error(f"File processing error: {str(result)}")
-                    continue
-                results.append(result)
+        async with ProcessPoolExecutor(max_workers=self.max_concurrent) as executor:
+            for file_path in batch:
+                task = asyncio.create_task(
+                    self._process_single_file(
+                        file_path,
+                        handler,
+                        executor,
+                        user_id
+                    )
+                )
+                tasks.append(task)
                 
-        finally:
-            # Ensure all resources are released
-            for task in tasks:
-                task.cancel()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
             
-        return results
-
-    async def _read_file_async(self, file_path: str) -> str:
-        """Read file content asynchronously"""
-        async with aiofiles.open(file_path, mode='r', encoding='utf-8') as f:
-            return await f.read()
-
-    async def _process_single_file(self, file_path: str, user_id: str) -> ProcessingResult:
-        """Process single file with async I/O"""
-        start_time = datetime.now()
-        
+            # Filter out errors and log them
+            processed_results = []
+            for result in results:
+                if isinstance(result, Exception):
+                    self.logger.error(f"Processing error: {str(result)}")
+                    continue
+                processed_results.append(result)
+                
+            return processed_results
+            
+    async def _process_single_file(
+        self,
+        file_path: str,
+        handler: Callable,
+        executor: ProcessPoolExecutor,
+        user_id: str
+    ) -> ProcessingResult:
         try:
-            # Read file content asynchronously
-            content = await self._read_file_async(file_path)
-            
-            # Process content
-            metadata = await self._extract_metadata(file_path)
-            compliance_status = await self._safe_async_operation(
-                self.compliance_manager.verify_compliance(metadata),
-                f"verifying compliance for {file_path}"
+            # Check cache first
+            cache_key = self._generate_cache_key(file_path, user_id)
+            cached_result = await self.cache_manager.get(cache_key)
+            if cached_result:
+                return cached_result
+                
+            # Process file content
+            loop = asyncio.get_event_loop()
+            content = await loop.run_in_executor(
+                executor,
+                handler,
+                file_path
             )
             
-            if not compliance_status['compliant']:
-                raise ValueError(f"Document fails compliance checks: {compliance_status['reasons']}")
-            
-            # Enhanced processing
-            processed_content = await self._safe_async_operation(
-                self._enhance_content({'text': content}, metadata),
-                "enhancing content"
-            )
+            # Extract metadata
+            metadata = await self._extract_metadata(file_path, content)
             
             # Generate embeddings
-            embeddings = await self._safe_async_operation(
-                self._generate_embeddings(processed_content['text']),
-                "generating embeddings"
-            )
+            embeddings = await self._generate_embeddings(content)
             
-            # Store results
-            await self._safe_async_operation(
-                self._store_results(metadata.document_id, processed_content, embeddings),
-                "storing results"
-            )
-            
-            return ProcessingResult(
+            # Create result
+            result = ProcessingResult(
                 metadata=metadata,
-                content=processed_content,
+                content=content,
                 embeddings=embeddings,
-                processing_time=(datetime.now() - start_time).total_seconds()
+                processing_time=time.time(),
+                status="success"
             )
+            
+            # Cache result
+            await self.cache_manager.set(cache_key, result)
+            
+            return result
             
         except Exception as e:
             self.logger.error(f"Error processing {file_path}: {str(e)}")
-            return self._create_error_result(file_path, str(e), start_time)
+            raise
 
     def _create_error_result(self, file_path: str, error: str, start_time: datetime) -> ProcessingResult:
         """Create standardized error result"""
@@ -388,3 +384,83 @@ class EnhancedDocumentProcessor:
         with ProcessPoolExecutor() as executor:
             embeddings = await loop.run_in_executor(executor, self.embedding_model.encode, text)
         return embeddings
+
+    def setup_vector_search(self):
+        # Initialize multiple embedding models for different content types
+        self.embedders = {
+            'default': SentenceTransformer('BAAI/bge-large-en-v1.5'),
+            'code': SentenceTransformer('microsoft/codebert-base'),
+            'multilingual': SentenceTransformer('intfloat/multilingual-e5-large')
+        }
+        
+        # Initialize Qdrant with optimized settings
+        self.qdrant = QdrantClient(
+            path="vectors.db",
+            optimize_storage=True,
+            timeout=60.0
+        )
+        
+        # Create collections with different vector configs
+        self.collections = {
+            'default': {
+                'name': 'default_vectors',
+                'vector_size': 1024,
+                'distance': 'Cosine'
+            },
+            'code': {
+                'name': 'code_vectors',
+                'vector_size': 768,
+                'distance': 'Dot'
+            }
+        }
+        
+    async def hybrid_search(
+        self,
+        query: str,
+        collection: str = 'default',
+        top_k: int = 5,
+        threshold: float = 0.7,
+        rerank: bool = True
+    ) -> List[Dict]:
+        try:
+            # Generate query embedding
+            query_embedding = self.embedders[collection].encode(query)
+            
+            # Vector search
+            vector_results = await self.qdrant.search(
+                collection_name=self.collections[collection]['name'],
+                query_vector=query_embedding,
+                limit=top_k * 2  # Get more results for re-ranking
+            )
+            
+            if not rerank:
+                return vector_results[:top_k]
+            
+            # Re-ranking with cross-encoder
+            reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
+            
+            rerank_pairs = [
+                (query, self.get_document_text(hit.id)) 
+                for hit in vector_results
+            ]
+            
+            rerank_scores = reranker.predict(rerank_pairs)
+            
+            # Combine vector similarity and reranking scores
+            results = []
+            for idx, (hit, rerank_score) in enumerate(zip(vector_results, rerank_scores)):
+                if rerank_score > threshold:
+                    results.append({
+                        'id': hit.id,
+                        'score': (0.7 * hit.score + 0.3 * rerank_score),
+                        'metadata': hit.metadata,
+                        'content': self.get_document_text(hit.id)
+                    })
+            
+            # Sort by combined score and return top_k
+            results.sort(key=lambda x: x['score'], reverse=True)
+            return results[:top_k]
+            
+        except Exception as e:
+            self.logger.error(f"Hybrid search error: {str(e)}")
+            raise
