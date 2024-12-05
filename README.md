@@ -10,9 +10,6 @@ RAGFlow-AI is a production-ready Retrieval-Augmented Generation system that leve
 
 ---
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[... existing badges ...]
-
 ## 🎯 TL;DR
 Enterprise-grade RAG system featuring:
 - Enhanced multi-LLM support with intelligent routing
