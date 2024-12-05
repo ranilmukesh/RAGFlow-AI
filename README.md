@@ -275,15 +275,11 @@ config = {
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for:
+welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for:
 - Code standards
 - Pull request process
 - Development setup
 - Testing requirements
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE)
 
 ## 🙏 Technical Acknowledgments
 
@@ -295,19 +291,8 @@ MIT License - see [LICENSE](LICENSE)
 - **Groq**: High-performance inference
 - **Qdrant**: Vector search engine
 
-## 📚 Citation
-bibtex
-@software{ragflow_ai_2024,
-title = {RAGFlow-AI: Enterprise-Grade Retrieval-Augmented Generation System},
-author = {Ranil Mukesh},
-year = {2024},
-publisher = {GitHub},
-url = {https://github.com/ranilmukesh/RAGFlow-AI},
-version = {1.0.0}
-}
-
 ---
-Developed by [Ranil Mukesh](https://github.com/ranilmukesh)
+Developed by [Ranil Mukesh](https://github.com/ranilmukesh) and [PhobosQ](https://www.instagram.com/phobosq.in/))
 
 ## 🔍 Related Projects and Alternatives
 

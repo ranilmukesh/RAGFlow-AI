@@ -32,7 +32,6 @@ class CacheManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Enhanced cache table with size tracking
                 cursor.execute("""
                 CREATE TABLE IF NOT EXISTS cache (
                     key TEXT PRIMARY KEY,
@@ -45,7 +44,6 @@ class CacheManager:
                 )
                 """)
                 
-                # Enhanced metadata table
                 cursor.execute("""
                 CREATE TABLE IF NOT EXISTS document_metadata (
                     doc_id TEXT PRIMARY KEY,
@@ -55,7 +53,6 @@ class CacheManager:
                 )
                 """)
                 
-                # Cache statistics table
                 cursor.execute("""
                 CREATE TABLE IF NOT EXISTS cache_stats (
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -78,15 +75,10 @@ class CacheManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Get total size
                 cursor.execute("SELECT SUM(size_bytes) FROM cache")
                 total_size = cursor.fetchone()[0] or 0
-                
-                # Get item count
                 cursor.execute("SELECT COUNT(*) FROM cache")
                 item_count = cursor.fetchone()[0]
-                
-                # Get hit rate
                 hit_rate = self.stats.hits / (self.stats.hits + self.stats.misses) if (self.stats.hits + self.stats.misses) > 0 else 0
                 
                 return {
@@ -108,16 +100,11 @@ class CacheManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
-                # Get current total size
                 cursor.execute("SELECT SUM(size_bytes) FROM cache")
                 total_size = cursor.fetchone()[0] or 0
                 
                 if total_size > self.max_size_bytes:
-                    # Calculate how much space we need to free
-                    space_to_free = total_size - (self.max_size_bytes * 0.9)  # Free up 10% extra
-                    
-                    # Delete least recently accessed items
+                    space_to_free = total_size - (self.max_size_bytes * 0.9) 
                     cursor.execute("""
                     DELETE FROM cache 
                     WHERE key IN (
@@ -153,7 +140,6 @@ class CacheManager:
                 if result:
                     value, expires_at = result
                     if expires_at and datetime.fromisoformat(expires_at) > datetime.now():
-                        # Update access statistics
                         cursor.execute("""
                         UPDATE cache 
                         SET access_count = access_count + 1,
@@ -175,7 +161,6 @@ class CacheManager:
             self.logger.error(f"Cache retrieval error: {str(e)}")
             return None
         finally:
-            # Update average query time
             query_time = (datetime.now() - start_time).total_seconds() * 1000
             self.stats.avg_query_time = (self.stats.avg_query_time + query_time) / 2
 
@@ -263,8 +248,6 @@ class CacheManager:
                     "access_patterns": {},
                     "performance_metrics": await self.get_cache_stats()
                 }
-                
-                # Size distribution
                 cursor.execute("""
                 SELECT 
                     CASE 
@@ -278,7 +261,6 @@ class CacheManager:
                 """)
                 analysis["size_distribution"] = dict(cursor.fetchall())
                 
-                # Age distribution
                 cursor.execute("""
                 SELECT 
                     CASE 
