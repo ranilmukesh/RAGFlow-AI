@@ -28,12 +28,12 @@ Enterprise-grade RAG system featuring:
   - Timeout handling and recovery
 
 - **Claude Integration**: 
-  - Anthropic's Claude 3 Opus/Sonnet for complex reasoning
+  - Anthropic's Claude 3.5 Sonnet for complex reasoning
   - Context window up to 200K tokens
   - Advanced code interpretation & generation
   
 - **OpenAI Integration**: 
-  - GPT-4 Turbo with 128K context
+  - GPT-4o with 128K context
   - Function calling capabilities
   - JSON mode for structured outputs
   
